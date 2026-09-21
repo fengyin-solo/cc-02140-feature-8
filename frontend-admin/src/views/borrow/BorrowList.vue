@@ -207,38 +207,149 @@
             </div>
           </template>
           <template v-else-if="column.key === 'status'">
-            <a-tag :color="getStatusColor(record.status)" :class="['status-tag', record.status]">
-              {{ getStatusText(record.status) }}
-            </a-tag>
+            <div class="status-cell">
+              <a-tag :color="getStatusColor(record.status)" :class="['status-tag', record.stage]">
+                {{ getStatusText(record.status) }}
+              </a-tag>
+              <span class="stage-note">{{ record.stageTitle }}</span>
+            </div>
           </template>
           <template v-else-if="column.key === 'action'">
-            <a-space>
+            <a-space :size="4" wrap>
               <a-button
-                v-if="record.status === 'borrowed' || record.status === 'overdue'"
                 type="link"
                 size="small"
-                class="table-action-btn return-btn"
-                @click="handleReturn(record)"
+                class="table-action-btn detail-btn"
+                @click="showDetail(record.id)"
               >
-                <CheckOutlined /> 归还
+                <EyeOutlined /> 详情
               </a-button>
-              <a-button
-                v-if="record.status === 'borrowed' && record.renewCount < 2"
-                type="link"
-                size="small"
-                class="table-action-btn renew-btn"
-                @click="handleRenew(record)"
-              >
-                <ReloadOutlined /> 续借
-              </a-button>
-              <span v-if="record.status === 'returned'" class="completed-text">
-                <CheckCircleOutlined /> 已完成
-              </span>
+              <a-tooltip :title="record.canReturn ? '办理归还' : record.actionHint">
+                <a-button
+                  v-if="record.canReturn"
+                  type="link"
+                  size="small"
+                  class="table-action-btn return-btn"
+                  @click="handleReturn(record)"
+                >
+                  <CheckOutlined /> 归还
+                </a-button>
+              </a-tooltip>
+              <a-tooltip :title="record.canRenew ? `续借后到期日：${record.nextDueDate}` : record.actionHint">
+                <span>
+                  <a-button
+                    type="link"
+                    size="small"
+                    class="table-action-btn renew-btn"
+                    :disabled="!record.canRenew"
+                    @click="handleRenew(record)"
+                  >
+                    <ReloadOutlined /> 续借
+                  </a-button>
+                </span>
+              </a-tooltip>
             </a-space>
           </template>
         </template>
       </a-table>
     </div>
+
+    <!-- 借阅详情抽屉 -->
+    <a-drawer
+      v-model:open="detailVisible"
+      title="借阅流程详情"
+      width="620"
+      :destroy-on-close="false"
+      @close="detailVisible = false"
+    >
+      <template v-if="currentRecord">
+        <a-alert
+          :message="currentRecord.stageTitle"
+          :description="currentRecord.stageDescription"
+          :type="getAlertType(currentRecord.status)"
+          show-icon
+          class="stage-alert"
+        />
+
+        <div class="detail-summary">
+          <div class="summary-item">
+            <span class="summary-label">当前库存</span>
+            <strong>{{ currentBook ? `${currentBook.available}/${currentBook.total}` : '--' }}</strong>
+          </div>
+          <div class="summary-item">
+            <span class="summary-label">应还日期</span>
+            <strong>{{ currentRecord.dueDate }}</strong>
+          </div>
+          <div class="summary-item">
+            <span class="summary-label">续借次数</span>
+            <strong>{{ currentRecord.renewCount }}/{{ currentRecord.renewLimit }}</strong>
+          </div>
+        </div>
+
+        <a-descriptions :column="1" bordered size="small" class="detail-descriptions">
+          <a-descriptions-item label="读者">
+            {{ currentRecord.readerName }}（{{ currentRecord.cardNo }}）
+          </a-descriptions-item>
+          <a-descriptions-item label="图书">
+            {{ currentRecord.bookTitle }}（{{ currentRecord.isbn }}）
+          </a-descriptions-item>
+          <a-descriptions-item label="借出日期">{{ currentRecord.borrowDate }}</a-descriptions-item>
+          <a-descriptions-item label="归还日期">{{ currentRecord.effectiveReturnDate || '尚未归还' }}</a-descriptions-item>
+          <a-descriptions-item label="阶段可操作说明">{{ currentRecord.actionHint }}</a-descriptions-item>
+        </a-descriptions>
+
+        <a-timeline class="stage-timeline">
+          <a-timeline-item color="blue">
+            <div class="timeline-title">借出（{{ currentRecord.borrowDate }}）</div>
+            <div class="timeline-desc">库存借出 1 本，初始借期 {{ borrowPeriodDays }} 天。</div>
+          </a-timeline-item>
+          <a-timeline-item
+            v-for="(item, index) in currentRecord.renewHistory"
+            :key="`renew-${index}`"
+            color="green"
+          >
+            <div class="timeline-title">
+              续借 {{ item.index }}/{{ currentRecord.renewLimit }}
+              <span v-if="item.renewDate">（{{ item.renewDate }}）</span>
+            </div>
+            <div class="timeline-desc">
+              到期日 <s v-if="item.fromDueDate">{{ item.fromDueDate }}</s>
+              <span v-if="item.fromDueDate"> → </span>
+              {{ item.toDueDate }}，延长 {{ renewPeriodDays }} 天
+              <span v-if="!item.renewDate">（历史记录）</span>
+            </div>
+          </a-timeline-item>
+          <a-timeline-item :color="getDueTimelineColor(currentRecord)">
+            <div class="timeline-title">到期 / 逾期</div>
+            <div class="timeline-desc">{{ getDueDescription(currentRecord) }}</div>
+          </a-timeline-item>
+          <a-timeline-item :color="currentRecord.status === 'returned' ? 'green' : 'gray'">
+            <div class="timeline-title">归还</div>
+            <div class="timeline-desc">
+              {{ currentRecord.effectiveReturnDate ? `已于 ${currentRecord.effectiveReturnDate} 完成归还。` : '等待办理归还，归还后记录保留且状态不会回退。' }}
+            </div>
+          </a-timeline-item>
+        </a-timeline>
+
+      </template>
+      <template #extra v-if="currentRecord">
+        <a-space>
+          <a-button
+            type="primary"
+            :disabled="!currentRecord.canReturn"
+            @click="handleReturn(currentRecord)"
+          >
+            <CheckOutlined /> 立即归还
+          </a-button>
+          <a-button
+            :disabled="!currentRecord.canRenew"
+            @click="handleRenew(currentRecord)"
+          >
+            <ReloadOutlined /> 办理续借
+          </a-button>
+        </a-space>
+      </template>
+    </a-drawer>
 
     <!-- 新增借阅弹窗 -->
     <a-modal
@@ -259,17 +370,17 @@
         <a-form-item label="读者" name="readerId">
           <a-select
             v-model:value="borrowForm.readerId"
-            placeholder="请选择读者"
+            placeholder="请选择读者（含不可借读者，用于显示具体原因）"
             show-search
             :filter-option="filterReader"
           >
             <a-select-option
-              v-for="reader in availableReaders"
+              v-for="reader in selectableReaders"
               :key="reader.id"
               :value="reader.id"
               :label="reader.name"
             >
-              {{ reader.name }} ({{ reader.cardNo }})
+              {{ reader.name }} ({{ reader.cardNo }}｜{{ getReaderOptionText(reader) }})
             </a-select-option>
           </a-select>
         </a-form-item>
@@ -281,27 +392,48 @@
             :filter-option="filterBook"
           >
             <a-select-option
-              v-for="book in availableBooks"
+              v-for="book in selectableBooks"
               :key="book.id"
               :value="book.id"
               :label="book.title"
             >
-              {{ book.title }} (库存: {{ book.available }})
+              {{ book.title }} (库存: {{ book.available }}/{{ book.total }})
             </a-select-option>
           </a-select>
         </a-form-item>
+        <a-alert
+          v-if="borrowValidationMessages.length"
+          type="error"
+          show-icon
+          class="borrow-alert"
+          message="当前选择不可借出"
+        >
+          <template #description>
+            <div v-for="(item, index) in borrowValidationMessages" :key="`${item.code}-${index}`" class="result-line">
+              {{ index + 1}}. {{ item.message }}
+            </div>
+          </template>
+        </a-alert>
+        <a-alert
+          v-else
+          type="info"
+          show-icon
+          class="borrow-alert"
+          :message="borrowPreviewText"
+        />
       </a-form>
     </a-modal>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed, nextTick } from 'vue'
-import { message } from 'ant-design-vue'
+import { ref, reactive, computed, nextTick, h } from 'vue'
+import { notification } from 'ant-design-vue'
 import {
   PlusOutlined,
   CheckOutlined,
   ReloadOutlined,
+  EyeOutlined,
   DatabaseOutlined,
   BookOutlined,
   CheckCircleOutlined,
@@ -314,7 +446,15 @@ import {
   SearchOutlined,
   CalendarOutlined
 } from '@ant-design/icons-vue'
-import { useBorrowStore } from '@/stores/borrow'
+import {
+  useBorrowStore,
+  BORROW_PERIOD_DAYS,
+  RENEW_PERIOD_DAYS,
+  MAX_RENEW_COUNT,
+  calculateDueDate,
+  formatDate,
+  getToday
+} from '@/stores/borrow'
 import { useReaderStore } from '@/stores/reader'
 import { useBookStore } from '@/stores/book'
 
@@ -331,6 +471,10 @@ const submitLoading = ref(false)
 const borrowFormRef = ref(null)
 const isSearching = ref(false)
 const tableAnimating = ref(false)
+const detailVisible = ref(false)
+const currentDetailId = ref(null)
+const borrowPeriodDays = BORROW_PERIOD_DAYS
+const renewPeriodDays = RENEW_PERIOD_DAYS
 let searchTimeout = null
 
 const columns = [
@@ -340,8 +484,8 @@ const columns = [
   { title: '应还日期', dataIndex: 'dueDate', key: 'dueDate', width: 110 },
   { title: '归还日期', dataIndex: 'returnDate', key: 'returnDate', width: 110 },
   { title: '续借次数', dataIndex: 'renewCount', key: 'renewCount', width: 90 },
-  { title: '状态', key: 'status', width: 90 },
-  { title: '操作', key: 'action', width: 140, fixed: 'right' }
+  { title: '状态', key: 'status', width: 120 },
+  { title: '操作', key: 'action', width: 220, fixed: 'right' }
 ]
 
 const borrowForm = reactive({
@@ -359,7 +503,7 @@ const hasFilters = computed(() => {
 })
 
 const filteredRecords = computed(() => {
-  let result = borrowStore.records
+  let result = borrowStore.decoratedRecords
 
   if (searchKeyword.value) {
     const keyword = searchKeyword.value.toLowerCase()
@@ -398,7 +542,7 @@ const returnedCount = computed(() => {
 })
 
 const todayBorrowCount = computed(() => {
-  const today = new Date().toISOString().split('T')[0]
+  const today = formatDate(getToday())
   return filteredRecords.value.filter(r => r.borrowDate === today).length
 })
 
@@ -414,15 +558,86 @@ const returnedPercent = computed(() => {
   return Math.round((returnedCount.value / total) * 100)
 })
 
-const availableReaders = computed(() => {
-  return readerStore.readers.filter(r =>
-    r.status === 'active' && r.borrowCount < r.maxBorrow
-  )
+const selectableReaders = computed(() => readerStore.readers)
+
+const selectableBooks = computed(() => bookStore.books)
+
+const selectedReader = computed(() => {
+  return readerStore.getReaderById(borrowForm.readerId)
 })
 
-const availableBooks = computed(() => {
-  return bookStore.books.filter(b => b.available > 0)
+const selectedBook = computed(() => {
+  return bookStore.getBookById(borrowForm.bookId)
 })
+
+const selectedBorrowCount = computed(() => {
+  if (!selectedReader.value) return 0
+  return borrowStore.decoratedRecords.filter(record =>
+    record.readerId === selectedReader.value.id &&
+    (record.status === 'borrowed' || record.status === 'overdue')
+  ).length
+})
+
+const borrowValidationMessages = computed(() => {
+  const messages = []
+  const reader = selectedReader.value
+  const book = selectedBook.value
+
+  if (reader && reader.status !== 'active') {
+    messages.push({
+      code: 'reader_inactive',
+      message: `读者当前不可借：账号${reader.status === 'expired' ? '已过期' : '已停用'}。`
+    })
+  }
+  if (selectedBorrowCount.value >= reader.maxBorrow) {
+    messages.push({
+      code: 'reader_limit_reached',
+      message: `借阅数已达上限：${selectedBorrowCount.value}/${reader.maxBorrow} 本。`
+    })
+  }
+  if (book && book.available <= 0) {
+    messages.push({
+      code: 'book_out_of_stock',
+      message: `图书无库存：${book.title} 当前 0/${book.total} 本。`
+    })
+  }
+
+  return messages
+})
+
+const borrowPreviewText = computed(() => {
+  const readerText = selectedReader.value
+    ? `已借 ${selectedBorrowCount.value}/${selectedReader.value.maxBorrow} 本`
+    : '请选择读者'
+  const bookText = selectedBook.value
+    ? `库存 ${selectedBook.value.available}/${selectedBook.value.total} 本`
+    : '请选择图书'
+  return `${readerText}；${bookText}；借期 ${borrowPeriodDays} 天，到期日 ${calculateDueDate()}，最多续借 ${MAX_RENEW_COUNT} 次。`
+})
+
+const currentRecord = computed(() => {
+  return currentDetailId.value === null
+    ? null
+    : borrowStore.getDecoratedRecordById(currentDetailId.value)
+})
+
+const currentBook = computed(() => {
+  return currentRecord.value ? bookStore.getBookById(currentRecord.value.bookId) : null
+})
+
+function getActiveBorrowCount(readerId) {
+  return borrowStore.decoratedRecords.filter(record =>
+    record.readerId === readerId &&
+    (record.status === 'borrowed' || record.status === 'overdue')
+  ).length
+}
+
+function getReaderOptionText(reader) {
+  const count = getActiveBorrowCount(reader.id)
+  if (reader.status !== 'active') return '不可借：已过期'
+  if (count >= reader.maxBorrow) return '不可借：已达上限'
+  return `${count}/${reader.maxBorrow} 本`
+}
 
 function getStatusColor(status) {
   const colors = {
@@ -440,6 +655,34 @@ function getStatusText(status) {
     overdue: '已逾期'
   }
   return texts[status] || status
+}
+
+function getAlertType(status) {
+  const types = {
+    borrowed: 'info',
+    returned: 'success',
+    overdue: 'error'
+  }
+  return types[status] || 'info'
+}
+
+function getDueTimelineColor(record) {
+  if (record.status === 'returned') {
+    return record.returnedLate ? 'red' : 'green'
+  }
+  return record.status === 'overdue' ? 'red' : 'blue'
+}
+
+function getDueDescription(record) {
+  if (record.status === 'returned') {
+    return record.returnedLate
+      ? `原应还日期 ${record.dueDate}，逾期 ${record.lateDays} 天后归还。`
+      : `应还日期 ${record.dueDate}，记录已按时结束。`
+  }
+  if (record.status === 'overdue') {
+    return `应还日期 ${record.dueDate}，当前已逾期 ${record.overdueDays} 天。`
+  }
+  return `应还日期 ${record.dueDate}，距离到期还有 ${record.daysToDue} 天。`
 }
 
 function filterReader(input, option) {
@@ -510,35 +753,61 @@ function showBorrowModal() {
   })
 }
 
+function showDetail(id) {
+  currentDetailId.value = id
+  detailVisible.value = true
+}
+
+function renderResultDescription(result) {
+  const lines = result.errors?.length
+    ? result.errors.map((item, index) => `${index + 1}. ${item.message}`)
+    : []
+
+  if (result.success) {
+    lines.push(`到期日：${result.dueDate}`)
+    lines.push(`续借次数：${result.renewCount}/${MAX_RENEW_COUNT}`)
+    if (result.inventory) {
+      lines.push(`库存：${result.inventory.available}/${result.inventory.total}`)
+    }
+    if (result.reader) {
+      lines.push(`读者借阅数：${result.reader.borrowCount}/${result.reader.maxBorrow}`)
+    }
+  } else {
+    lines.push('原借阅记录、库存和读者借阅数均未改动。')
+  }
+
+  return h(
+    'div',
+    { class: 'action-result-description' },
+    lines.map(line => h('div', { class: 'result-line' }, line))
+  )
+}
+
+function showActionResult(result) {
+  notification.open({
+    message: result.message,
+    description: renderResultDescription(result),
+    type: result.success ? 'success' : 'error',
+    placement: 'topRight',
+    duration: result.success ? 3 : 6
+  })
+}
+
 async function handleBorrowSubmit() {
   try {
     await borrowFormRef.value.validate()
     submitLoading.value = true
-
-    const reader = readerStore.getReaderById(borrowForm.readerId)
-    const book = bookStore.getBookById(borrowForm.bookId)
-
-    if (!reader || !book) {
-      message.error('读者或图书信息不存在')
-      return
-    }
-
     await new Promise(resolve => setTimeout(resolve, 500))
 
-    borrowStore.addRecord({
-      readerId: reader.id,
-      readerName: reader.name,
-      cardNo: reader.cardNo,
-      bookId: book.id,
-      bookTitle: book.title,
-      isbn: book.isbn
+    const result = borrowStore.borrowBook({
+      readerId: borrowForm.readerId,
+      bookId: borrowForm.bookId
     })
 
-    bookStore.updateBook(book.id, { available: book.available - 1 })
-    readerStore.updateReader(reader.id, { borrowCount: reader.borrowCount + 1 })
-
-    message.success('借阅成功')
-    borrowModalVisible.value = false
+    showActionResult(result)
+    if (result.success) {
+      borrowModalVisible.value = false
+    }
   } catch (error) {
     console.error('表单验证失败:', error)
   } finally {
@@ -547,28 +816,13 @@ async function handleBorrowSubmit() {
 }
 
 function handleReturn(record) {
-  borrowStore.returnBook(record.id)
-
-  const book = bookStore.getBookById(record.bookId)
-  const reader = readerStore.getReaderById(record.readerId)
-
-  if (book) {
-    bookStore.updateBook(book.id, { available: book.available + 1 })
-  }
-  if (reader) {
-    readerStore.updateReader(reader.id, { borrowCount: Math.max(0, reader.borrowCount - 1) })
-  }
-
-  message.success('归还成功')
+  const result = borrowStore.returnBook(record.id)
+  showActionResult(result)
 }
 
 function handleRenew(record) {
-  const success = borrowStore.renewBook(record.id)
-  if (success) {
-    message.success('续借成功，借阅期限延长15天')
-  } else {
-    message.error('续借失败，已达到最大续借次数')
-  }
+  const result = borrowStore.renewBook(record.id)
+  showActionResult(result)
 }
 </script>
 
@@ -957,9 +1211,15 @@ function handleRenew(record) {
     transition: all 0.2s ease;
 
     &.return-btn:hover,
-    &.renew-btn:hover {
+    &.renew-btn:hover,
+    &.detail-btn:hover {
       color: #1890ff;
       background: #e6f7ff;
+    }
+
+    &:disabled {
+      color: #bfbfbf;
+      background: transparent;
     }
   }
   
@@ -969,6 +1229,81 @@ function handleRenew(record) {
     display: flex;
     align-items: center;
     gap: 4px;
+  }
+}
+
+.status-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+
+  .stage-note {
+    font-size: 12px;
+    color: #666;
+    line-height: 1.2;
+  }
+}
+
+.borrow-alert {
+  margin-left: 20.8333%;
+}
+
+.stage-alert {
+  margin-bottom: 16px;
+}
+
+.detail-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+
+  .summary-item {
+    background: #f8fafc;
+    border: 1px solid #edf2f7;
+    border-radius: 8px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+
+    .summary-label {
+      font-size: 12px;
+      color: #8c8c8c;
+    }
+
+    strong {
+      color: #1f2937;
+      font-size: 16px;
+    }
+  }
+}
+
+.detail-descriptions {
+  margin-bottom: 20px;
+}
+
+.stage-timeline {
+  margin-top: 8px;
+  padding-left: 4px;
+
+  .timeline-title {
+    font-weight: 600;
+    color: #1f2937;
+    margin-bottom: 4px;
+  }
+
+  .timeline-desc {
+    font-size: 13px;
+    color: #666;
+    line-height: 1.6;
+  }
+}
+
+:global(.action-result-description) {
+  .result-line {
+    line-height: 1.7;
   }
 }
 

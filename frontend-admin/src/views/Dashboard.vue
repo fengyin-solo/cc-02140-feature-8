@@ -91,8 +91,8 @@
                   </div>
                   <div class="borrow-meta">
                     <span class="borrow-date">{{ record.borrowDate }}</span>
-                    <a-tag :color="getStatusColor(record.status)" size="small" class="status-tag">
-                      {{ getStatusText(record.status) }}
+                    <a-tag :color="getStatusColor(getRecordStatus(record))" size="small" class="status-tag">
+                      {{ getStatusText(getRecordStatus(record)) }}
                     </a-tag>
                   </div>
                 </div>
@@ -203,7 +203,8 @@ const borrowStore = useBorrowStore()
 const categoryStore = useCategoryStore()
 
 const recentBorrows = computed(() => {
-  return [...borrowStore.records]
+  return borrowStore.decoratedRecords
+    .slice()
     .sort((a, b) => new Date(b.borrowDate) - new Date(a.borrowDate))
     .slice(0, 5)
 })
@@ -225,6 +226,10 @@ const avatarColors = ['#1890ff', '#52c41a', '#faad14', '#722ed1', '#eb2f96', '#1
 
 function getAvatarColor(id) {
   return avatarColors[(id - 1) % avatarColors.length]
+}
+
+function getRecordStatus(record) {
+  return record.status
 }
 
 function getStatusColor(status) {
