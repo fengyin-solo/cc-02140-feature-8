@@ -104,6 +104,37 @@ export const useBookStore = defineStore('book', () => {
     return false
   }
 
+  function changeAvailable(id, delta) {
+    const book = getBookById(id)
+    if (!book) {
+      return {
+        success: false,
+        book: null,
+        available: null,
+        capped: false
+      }
+    }
+
+    const maxAvailable = book.total ?? Number.POSITIVE_INFINITY
+    const nextAvailable = Math.max(0, Math.min(maxAvailable, book.available + delta))
+    updateBook(id, { available: nextAvailable })
+
+    return {
+      success: true,
+      book: getBookById(id),
+      available: nextAvailable,
+      capped: nextAvailable !== book.available + delta
+    }
+  }
+
+  function reserveBook(id) {
+    return changeAvailable(id, -1)
+  }
+
+  function restoreBook(id) {
+    return changeAvailable(id, 1)
+  }
+
   function searchBooks(keyword) {
     if (!keyword) return books.value
     const lowerKeyword = keyword.toLowerCase()
@@ -128,6 +159,9 @@ export const useBookStore = defineStore('book', () => {
     addBook,
     updateBook,
     deleteBook,
+    changeAvailable,
+    reserveBook,
+    restoreBook,
     searchBooks,
     filterByCategory
   }

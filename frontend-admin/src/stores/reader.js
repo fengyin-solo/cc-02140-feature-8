@@ -64,6 +64,29 @@ export const useReaderStore = defineStore('reader', () => {
     return false
   }
 
+  function adjustBorrowCount(id, delta) {
+    const reader = getReaderById(id)
+    if (!reader) {
+      return {
+        success: false,
+        reader: null,
+        borrowCount: null,
+        capped: false
+      }
+    }
+
+    const maxBorrow = reader.maxBorrow ?? Number.POSITIVE_INFINITY
+    const nextBorrowCount = Math.max(0, Math.min(maxBorrow, reader.borrowCount + delta))
+    updateReader(id, { borrowCount: nextBorrowCount })
+
+    return {
+      success: true,
+      reader: getReaderById(id),
+      borrowCount: nextBorrowCount,
+      capped: nextBorrowCount !== reader.borrowCount + delta
+    }
+  }
+
   function searchReaders(keyword) {
     if (!keyword) return readers.value
     const lowerKeyword = keyword.toLowerCase()
@@ -84,6 +107,7 @@ export const useReaderStore = defineStore('reader', () => {
     addReader,
     updateReader,
     deleteReader,
+    adjustBorrowCount,
     searchReaders
   }
 })
